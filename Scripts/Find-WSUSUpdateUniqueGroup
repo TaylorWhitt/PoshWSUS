@@ -1,0 +1,44 @@
+Function Find-WSUSUpdateUniqueGroup {
+[CmdletBinding()]
+Param(
+[Parameter(Mandatory = $True,ValueFromPipeline = $True)]
+        [ValidateNotNullOrEmpty()]
+        [Microsoft.UpdateServices.Internal.BaseApi.Update[]]$Update,
+[Parameter(Mandatory = $False)]
+[switch]$Inclusive
+)
+Process {
+    $updatescope = New-Object Microsoft.UpdateServices.Administration.UpdateScope
+    $ComputerScope = New-Object Microsoft.UpdateServices.Administration.ComputerTargetScope
+    
+    $NonCompliantComputers = @()
+    $CompliantComputers = @()
+    $IncludeGroups = @()
+    $UniqueIncludeGroups = @()
+    $ExcludeGroups = @()
+    $NonCompliantComputerIds = @()
+    $CompliantComputerIds = @()
+    $Groups = @()
+    ForEach ($Patch in $Update) {
+        $Title = $Patch.Title
+        $UpdateScope.TextIncludes = "$Title"
+        $ComplianceSummary = $wsus.GetSummariesPerComputerTarget($updatescope,$computerscope) | Select *,@{L='NeededTotal';E={($_.NotInstalledCount + $_.FailedCount + $_.DownloadedCount + $_.InstalledPendingRebootCount + $_.InstalledCount)}}
+        ForEach ($I in $ComplianceSummary) {
+            If ($I.NeededTotal -gt "0") {
+                $Id = $I.ComputerTargetId
+                $NonCompliantComputers += $Wsus.GetComputerTarget("$Id")
+            } Else {
+                $Id = $I.ComputerTargetId
+                $CompliantComputers += $Wsus.GetComputerTarget("$Id")
+            }
+        }
+        $ExcludeGroups = $CompliantComputers.ComputerTargetGroupIds | Select -Unique
+        $IncludeGroups = $NonCompliantComputers.ComputerTargetGroupIds | Select -Unique
+        $UniqueIncludeGroups = $IncludeGroups | Where {$_ -notin $ExcludeGroups}
+        ForEach ($Group in $UniqueIncludeGroups) {
+            $Groups += $Wsus.GetComputerTargetGroup([guid]"$Group").Name
+        }
+        $Groups
+        }
+    }
+}
