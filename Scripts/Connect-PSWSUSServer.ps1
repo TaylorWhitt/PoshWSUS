@@ -19,7 +19,10 @@ Function Connect-PSWSUSServer {
     .NOTES  
         Name: Connect-PSWSUSServer
         Author: Boe Prox
+        Editor: Taylor Whitt
         Version History: 
+            1.3 | 21 Nov 2016
+                - Added DNS lookup for alias support.
             1.2 | 17 Feb 2015
                 -Renamed to Connect-PSWSUSServer
                 -Allow read of registry for WUServer and Port
@@ -86,6 +89,16 @@ Function Connect-PSWSUSServer {
             Write-Output $Wsus  
         } Catch {
             Write-Warning "Unable to connect to $($wsusserver)!`n$($error[0])"
+            Write-Verbose "Attempting to resolve $($wsusserver) and trying to connect again."
+            $WsusServer = [System.Net.DNS]::GetHostEntry("$Server").hostname
+            Try {
+                Write-Verbose "Connecting to $($WsusServer) <$($Port)>"
+                $Script:Wsus = [Microsoft.UpdateServices.Administration.AdminProxy]::GetUpdateServer($wsusserver,$Secure,$port)  
+                $Script:_wsusconfig = $Wsus.GetConfiguration()
+                Write-Output $Wsus  
+            } Catch {
+                Write-Warning "Unable to connect to $($wsusserver)!`n$($error[0])"
+            }
         } Finally {
             $ErrorActionPreference = 'Continue' 
         } 
