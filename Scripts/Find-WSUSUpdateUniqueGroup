@@ -1,4 +1,4 @@
-Function Find-WSUSUpdateUniqueGroup {
+Function Get-UniqueUpdateGroup {
 [CmdletBinding()]
 Param(
 [Parameter(Mandatory = $True,ValueFromPipeline = $True)]
@@ -22,23 +22,39 @@ Process {
     ForEach ($Patch in $Update) {
         $Title = $Patch.Title
         $UpdateScope.TextIncludes = "$Title"
-        $ComplianceSummary = $wsus.GetSummariesPerComputerTarget($updatescope,$computerscope) | Select *,@{L='NeededTotal';E={($_.NotInstalledCount + $_.FailedCount + $_.DownloadedCount + $_.InstalledPendingRebootCount + $_.InstalledCount)}}
+        Write-Verbose "Getting compliance summary for $Title"
+        $ComplianceSummary = $wsus.GetSummariesPerComputerTarget($updatescope,$computerscope) | Select *,@{L='NeededTotal';E={($_.NotInstalledCount + $_.FailedCount + $_.DownloadedCount + $_.InstalledPendingRebootCount + $_.InstalledCount)}},@{L="ComputerName";E={($wsus.GetComputerTarget([guid]$_.ComputerTargetId).FullDomainName)}}
+        Write-Verbose "Assigning targets to groups based on applicability."
         ForEach ($I in $ComplianceSummary) {
             If ($I.NeededTotal -gt "0") {
                 $Id = $I.ComputerTargetId
+                $Name = $I.ComputerName
                 $NonCompliantComputers += $Wsus.GetComputerTarget("$Id")
+                Write-Verbose "Adding $Name to Applicable"
             } Else {
                 $Id = $I.ComputerTargetId
+                $Name = $I.ComputerName
                 $CompliantComputers += $Wsus.GetComputerTarget("$Id")
+                Write-Verbose "Adding $Name to Not Applicable"
             }
         }
         $ExcludeGroups = $CompliantComputers.ComputerTargetGroupIds | Select -Unique
+        Write-Verbose "Exclude: $ExcludeGroups"
         $IncludeGroups = $NonCompliantComputers.ComputerTargetGroupIds | Select -Unique
+        Write-Verbose "Include: $IncludeGroups"
+        Write-Verbose "Finding unique update groups based on applicability."
         $UniqueIncludeGroups = $IncludeGroups | Where {$_ -notin $ExcludeGroups}
-        ForEach ($Group in $UniqueIncludeGroups) {
-            $Groups += $Wsus.GetComputerTargetGroup([guid]"$Group").Name
+        $Groups += $Wsus.GetComputerTargetGroups() | where {"$UniqueIncludeGroups" -match $_.Id} | select Name
+        $Script:NoUniqueGroups = @()
+        $Script:MissingApprovals = @()
+        ForEach ($Computer in $NonCompliantComputers) {
+        #Check if atleast one group is included in UniqueGroups.
+            If ($_.ComputerTargetGroupIds -NotMatch $UniqueIncludeGroups) {
+            $Script:NoUniqueGroups += $Computer
+            $Script:MissingApprovals += $Patch
+            }
         }
-        $Groups
+        return $Groups
         }
     }
 }
